@@ -1,0 +1,27 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Karachi}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Karachi}
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${N8N_PUBLIC_URL}/
+      - N8N_EDITOR_BASE_URL=http://localhost:5678
+      - CLINIC_GOOGLE_SHEET_ID=${CLINIC_GOOGLE_SHEET_ID}
+      - VAPI_PRIVATE_KEY=${VAPI_PRIVATE_KEY}
+      - VAPI_REMINDER_ASSISTANT_ID=${VAPI_REMINDER_ASSISTANT_ID}
+      - VAPI_PHONE_NUMBER_ID=${VAPI_PHONE_NUMBER_ID}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:
