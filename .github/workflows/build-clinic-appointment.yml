@@ -3,8 +3,9 @@ name: Build Clinic Appointment n8n Workflow
 on:
   push:
     paths:
-      - 'clinic-appointment/workflow/clinic-appointment-agent.json.gz.b64'
+      - 'clinic-appointment/workflow/chunk-*.txt'
       - 'clinic-appointment/tests/workflow-tests.js'
+      - '.github/workflows/build-clinic-appointment.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
       - name: Restore workflow JSON
         shell: bash
         run: |
-          base64 -d clinic-appointment/workflow/clinic-appointment-agent.json.gz.b64 | gzip -d > clinic-appointment/workflow/clinic-appointment-agent.json
+          cat clinic-appointment/workflow/chunk-*.txt | tr -d '\n\r' | base64 -d | gzip -d > clinic-appointment/workflow/clinic-appointment-agent.json
           python -m json.tool clinic-appointment/workflow/clinic-appointment-agent.json > /dev/null
 
       - name: Run workflow tests
