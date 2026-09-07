@@ -1,0 +1,181 @@
+{
+  "note": "Replace YOUR_PUBLIC_N8N_DOMAIN with the HTTPS URL that reaches your self-hosted n8n (for example a stable Cloudflare Tunnel domain). This file is Vapi tool configuration/reference, not an n8n workflow import.",
+  "tools": [
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "search_doctors",
+        "description": "Search the clinic doctor directory by doctor name, specialization, branch, or gender. Use before availability when the doctor has not been uniquely identified.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "doctor_name": {"type": "string", "description": "Doctor name as spoken by the caller; empty string if not specified."},
+            "specialization": {"type": "string", "description": "Requested specialization such as Cardiology or Dermatology; empty string if not specified."},
+            "branch": {"type": "string", "description": "Clinic branch if caller specified one; otherwise empty string."},
+            "gender": {"type": "string", "description": "Doctor gender preference only if caller explicitly requested it; otherwise empty string."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["doctor_name", "specialization", "branch", "gender", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/search-doctors", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "check_availability",
+        "description": "Check live free appointment slots for one resolved doctor on one exact date in Pakistan time. Returns exact HH:MM slots, closures, doctor off status, and next scheduled date when available.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "doctor_name": {"type": "string", "description": "Exact resolved doctor name."},
+            "date": {"type": "string", "description": "Exact date YYYY-MM-DD in Asia/Karachi."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["doctor_name", "date", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/check-availability", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "book_appointment",
+        "description": "Create an appointment after doctor, date, time, and patient name are known. It validates schedule, minimum notice, 10-minute grid or doctor-specific slot size, and re-checks calendar conflicts.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patient_name": {"type": "string"},
+            "doctor_name": {"type": "string"},
+            "date": {"type": "string", "description": "YYYY-MM-DD Asia/Karachi."},
+            "time": {"type": "string", "description": "24-hour HH:MM."},
+            "phone": {"type": "string", "description": "Use empty string to let n8n use Vapi caller ID. Supply only when booking should use another number."},
+            "reason": {"type": "string", "description": "Optional short administrative reason; empty string if not needed."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["patient_name", "doctor_name", "date", "time", "phone", "reason", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/book-appointment", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "lookup_appointment",
+        "description": "Find the caller's active upcoming appointment(s), optionally filtered by date or doctor. Use before cancel/reschedule when details are unclear.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "phone": {"type": "string", "description": "Empty string uses Vapi caller ID."},
+            "date": {"type": "string", "description": "YYYY-MM-DD or empty string."},
+            "doctor_name": {"type": "string", "description": "Doctor name or empty string."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["phone", "date", "doctor_name", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/lookup-appointment", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "reschedule_appointment",
+        "description": "Move an existing appointment to a new valid date/time. Prefer appointment_id from lookup when available.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "appointment_id": {"type": "string", "description": "Internal appointment id from lookup; empty string if unavailable."},
+            "doctor_name": {"type": "string", "description": "Doctor name; empty string if appointment_id uniquely identifies it."},
+            "old_date": {"type": "string", "description": "Old YYYY-MM-DD or empty string."},
+            "old_time": {"type": "string", "description": "Old HH:MM or empty string."},
+            "new_date": {"type": "string", "description": "New YYYY-MM-DD."},
+            "new_time": {"type": "string", "description": "New HH:MM."},
+            "phone": {"type": "string", "description": "Empty string uses Vapi caller ID."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["appointment_id", "doctor_name", "old_date", "old_time", "new_date", "new_time", "phone", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/reschedule-appointment", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "cancel_appointment",
+        "description": "Cancel one confirmed appointment after the caller has confirmed cancellation. Prefer appointment_id from lookup when available.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "appointment_id": {"type": "string", "description": "Internal appointment id from lookup; empty string if unavailable."},
+            "doctor_name": {"type": "string", "description": "Doctor name or empty string."},
+            "date": {"type": "string", "description": "YYYY-MM-DD or empty string."},
+            "time": {"type": "string", "description": "HH:MM or empty string."},
+            "phone": {"type": "string", "description": "Empty string uses Vapi caller ID."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["appointment_id", "doctor_name", "date", "time", "phone", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/cancel-appointment", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "answer_question",
+        "description": "Answer factual clinic administrative questions from the clinic FAQ data. Never use for medical diagnosis or treatment advice.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {"type": "string", "description": "Caller's question, kept close to their own wording."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["question", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/answer-question", "timeoutSeconds": 10}
+    },
+    {
+      "type": "function",
+      "async": false,
+      "function": {
+        "name": "request_callback",
+        "description": "Create a callback request when the receptionist cannot safely or reliably complete the caller's request.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string", "description": "Caller/patient name if known, otherwise empty string."},
+            "phone": {"type": "string", "description": "Empty string uses Vapi caller ID."},
+            "reason": {"type": "string", "description": "Short administrative reason for callback."},
+            "language": {"type": "string", "enum": ["ur", "en"]}
+          },
+          "required": ["name", "phone", "reason", "language"],
+          "additionalProperties": false
+        }
+      },
+      "server": {"url": "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/request-callback", "timeoutSeconds": 10}
+    },
+    {"type": "endCall"}
+  ]
+}
