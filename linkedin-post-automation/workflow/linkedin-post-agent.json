@@ -1,0 +1,579 @@
+{
+  "name": "LinkedIn Post Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP\n1. Create credentials: Tavily (Bearer Auth), OpenAI, LinkedIn OAuth2, Groq\n2. In **Create a post**, select your LinkedIn Person\n3. Edit **Settings**: niches, tone, language\n4. Edit the cron in **Schedule Trigger** (default Mon/Wed/Fri 09:00)\n5. Set the workflow timezone (Workflow Settings), then activate\n\nForm trigger = manual post. Leave the topic empty to let the agent pick one.\nTopic history is only saved in production (active) runs.",
+        "height": 320,
+        "width": 520
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -520
+      ],
+      "id": "7ba9b840-e4d1-4306-9523-ae6fb287ee3e",
+      "name": "Setup Notes"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1,3,5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -140
+      ],
+      "id": "50af8246-3639-422f-943c-bc5eb76d08f0",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "formTitle": "post creator",
+        "formDescription": "Leave the topic empty and the agent will pick a trending topic automatically.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "post topic",
+              "placeholder": "Optional. Leave empty to auto-pick"
+            },
+            {
+              "fieldLabel": "post audience",
+              "placeholder": "Optional. e.g. startup founders"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        100
+      ],
+      "id": "56f85c68-e718-4e78-b316-3e088a1e709c",
+      "name": "On form submission",
+      "webhookId": "17e82e57-503c-4253-a54f-0225e474d9c6"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6542f103-2bff-48ff-9bb1-4135c8d1d8f9",
+              "name": "topic",
+              "value": "={{ ($json['post topic'] || '').toString().trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "c6559220-ef93-49e1-b109-3dd374208246",
+              "name": "audience",
+              "value": "={{ ($json['post audience'] || '').toString().trim() || 'Business professionals and decision-makers' }}",
+              "type": "string"
+            },
+            {
+              "id": "a4e8d443-6603-44ea-a58f-1ce6a8daacec",
+              "name": "niches",
+              "value": "AI and automation, technology and business, productivity and leadership",
+              "type": "string"
+            },
+            {
+              "id": "ca303934-1c14-474f-8689-cfaa14d60745",
+              "name": "tone",
+              "value": "Professional, confident, conversational",
+              "type": "string"
+            },
+            {
+              "id": "9d015f81-f5aa-4997-9903-9fe657ddc8d3",
+              "name": "language",
+              "value": "English",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        -20
+      ],
+      "id": "01879dd4-e894-4788-8ad4-8d68b2e5f581",
+      "name": "Settings"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "697f0660-a6e8-49b7-83c4-c475ab38a24e",
+              "leftValue": "={{ $json.topic }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        -20
+      ],
+      "id": "3c214858-187f-4ec3-bd34-2d3100c2107a",
+      "name": "Need Topic?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst recent = (sd.topics || []).slice(-30);\nreturn [{ json: { ...$input.first().json, recent_topics: recent } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        -160
+      ],
+      "id": "08335b33-891e-403b-a529-3679a768fb5c",
+      "name": "Load History"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Niches: {{ $json.niches }}\nTarget audience: {{ $json.audience }}\nToday's date: {{ $now.toFormat('yyyy-MM-dd') }}\nRecently posted topics (avoid these and anything similar):\n{{ ($json.recent_topics || []).length ? '- ' + $json.recent_topics.join('\\n- ') : 'none yet' }}",
+        "options": {
+          "systemMessage": "# ROLE\nYou are a LinkedIn Topic Strategist. Each run, you choose ONE fresh, timely, specific topic for a LinkedIn post.\n\n# INPUT\nThe user message contains the niches to cover, the target audience, today's date, and a list of recently posted topics.\n\n# PROCESS\n1. Use the Tavily search tool 1-3 times. Set search_topic to \"news\" and time_range to \"week\" (use \"month\" if results are thin) to find what is trending, newly released, or newly measured in the niches.\n2. Shortlist 3 candidate topics that are (a) specific, not generic, (b) backed by a recent credible source such as a report, launch, study, or statistic, and (c) useful to the target audience.\n3. Discard any candidate that is the same as, or very similar to, a recently posted topic.\n4. Choose the strongest remaining candidate. Prefer topics that support a clear takeaway or practical lesson.\n\n# TOPIC QUALITY\n- Specific beats generic. Bad: \"AI in business\". Good: \"Why most AI pilot projects stall before production\".\n- Rotate across the niches over time instead of repeating one niche.\n- Avoid political or controversial topics, rumors, and unverified claims.\n\n# OUTPUT FORMAT\nReturn exactly these three lines and nothing else:\nTOPIC: <specific topic, max 15 words>\nANGLE: <one sentence describing the takeaway or perspective for the post>\nAUDIENCE: <the target audience; reuse the given one unless a narrower fit is clearly better>"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        940,
+        -160
+      ],
+      "id": "d024d6bd-0b33-44a6-a075-f4f0d9f1a7a8",
+      "name": "Topic Picker",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 8000
+    },
+    {
+      "parameters": {
+        "jsCode": "const settings = $('Settings').first().json;\nconst out = String($input.first().json.output || '');\nconst pick = (key) => {\n  const m = out.match(new RegExp('^\\\\s*' + key + '\\\\s*:\\\\s*(.+)$', 'im'));\n  return m ? m[1].trim().replace(/^[\"'“]+|[\"'”]+$/g, '') : '';\n};\nconst topic = pick('TOPIC');\nif (!topic) throw new Error('Topic Picker returned no TOPIC line: ' + out.slice(0, 200));\nreturn [{ json: { ...settings, topic, angle: pick('ANGLE'), audience: pick('AUDIENCE') || settings.audience } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -160
+      ],
+      "id": "8835cdf2-8c7c-4483-942c-d033fa86496e",
+      "name": "Parse Topic"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Topic: {{ $json.topic }}\nAngle: {{ $json.angle || 'not specified, choose the most useful professional angle' }}\nTarget audience: {{ $json.audience }}\nTone: {{ $json.tone }}\nLanguage: {{ $json.language }}\nToday's date: {{ $now.toFormat('yyyy-MM-dd') }}",
+        "options": {
+          "systemMessage": "# OVERVIEW\nYou are a LinkedIn Content Strategist and Writer. Given any topic, you research it in real time and write one professional, educational, and engaging LinkedIn post that is accurate, well-sourced, and written for the intended audience.\n\n# INPUT\nThe user message contains: topic, angle (may be empty), target audience, tone, language, and today's date. Follow them. If the angle is empty, choose the most useful professional angle for the audience. If the language is not English, write the whole post in that language.\n\n# RESEARCH (mandatory)\n1. ALWAYS use the Tavily search tool BEFORE writing. Never write from memory alone.\n2. Run 2-4 focused searches. Search 1: the topic itself. Searches 2-3: recent statistics, reports, case studies, or news about it. If results are weak, rephrase the query and search again.\n3. Tavily parameters: set search_topic to \"news\" for recent events, launches, or trends, otherwise \"general\". Set time_range to \"year\" by default, or \"month\" / \"week\" when the topic is time-sensitive.\n4. Use today's date from the user message to judge freshness. Prefer sources from the last 12 months. Use older data only for foundational statistics and always state the year.\n5. Prefer credible sources: reputable publications, industry reports, official company or government sites, research papers. Ignore promotional, low-quality, or SEO-farm pages.\n6. Use only facts, numbers, and claims found in the search results. Never invent statistics, quotes, or sources. If reliable data is not found, write the post around general insight without fake figures.\n7. Include at most 1-3 facts or stats, each attributed to its source (e.g. \"According to McKinsey...\", \"A 2025 Gartner report found...\").\n8. Before answering, silently verify: every number in the post appears in the search results, every named source was returned by Tavily, and the hook is under 200 characters.\n\n# POST STRUCTURE\n1. Hook (line 1-2): a bold stat, a surprising insight, a sharp question, or a contrarian statement. It must make readers stop scrolling. Never open with \"In today's fast-paced world\" or similar clichés.\n2. Context (1-2 short lines): why this matters now.\n3. Body (3-6 short points): the key insights, lessons, or steps, each supported by research. Use a mix of short paragraphs and line breaks. Use a numbered or bulleted list only when it improves clarity.\n4. Takeaway (1-2 lines): the single most valuable conclusion or actionable advice.\n5. Call to action (last line): a specific question or invitation that encourages comments, e.g. \"What has been your experience with X?\"\n6. Hashtags: 3-5 relevant hashtags on the final line, mixing one broad and specific tags.\n\n# FORMAT AND LENGTH\n- Length: 150-250 words (max 300). Shorter is better if the message is clear.\n- One sentence per line where possible, with blank lines between blocks, so it is easy to scan on mobile.\n- Plain text only. No markdown headings, no bold asterisks, no tables.\n- Emojis: light and purposeful, max 3-4 in total, never in the hook. Use them only as bullet markers or subtle emphasis.\n- Do not use em dashes or excessive punctuation, and avoid buzzwords such as \"game-changer\", \"unlock\", \"revolutionary\", and \"delve\".\n- The first two lines (the hook) must stay under 200 characters in total, because LinkedIn cuts the feed preview after that.\n- Never exceed 2,500 characters in total.\n\n# TONE AND STYLE\n- Professional, confident, and conversational, like an expert sharing a useful insight with a peer.\n- Clear and simple language: short sentences, active voice, no jargon unless the audience expects it.\n- Educational first, promotional never. No hard selling, no self-praise.\n- Write in first person plural or second person (\"we\", \"you\") only when natural. Never invent personal experiences or claim to have worked with specific clients.\n- Match the language requested by the user. If none is specified, write in English.\n- Adapt the angle to the audience: executives (ROI, strategy, risk), practitioners (how-to, tools, tips), general audience (simple explanation, why it matters).\n\n# SOURCE ATTRIBUTION\n- Attribute every stat or claim inside the text: \"According to [source]\" or \"[Source] reports that...\".\n- Do not include raw URLs in the body. If a link is essential, place it on its own line before the hashtags.\n- Never cite a source you did not find in the search results.\n\n# OUTPUT RULES\nReturn EXACTLY this structure and nothing else:\n\nTOPIC: <the topic in one short line>\n===POST===\n<the final LinkedIn post text, ready to publish>\n===SOURCES===\n- <Publisher>: <URL>\n===END===\n\n- Text between ===POST=== and ===SOURCES=== is published as-is, so it must contain no preamble, notes, explanations, markdown, quotation marks around the post, or word count.\n- List only sources actually used in the post, one per line, with the real URL returned by Tavily.\n- Never ask the user questions. If the topic is vague, choose the most useful professional angle and write the post.\n- If the topic is sensitive (layoffs, tragedy, health, politics), keep the tone respectful and factual, with no emojis and no hype.\n\n# EXAMPLE OUTPUT\nThe example below only illustrates the format. Never reuse its facts or sources.\n\nTOPIC: The ROI of warehouse automation\n===POST===\nMost warehouses lose money on manual picking long before they notice it.\n\nAccording to McKinsey, automation can cut warehouse operating costs by up to 40% in high-volume operations.\n\nHere is where the ROI actually comes from:\n\n📦 Fewer picking errors and returns\n⏱️ Faster order cycles during peak demand\n👷 Staff moved from repetitive work to higher-value tasks\n\nThe lesson: start small. Automate your highest-volume process first, measure the payback period, then scale.\n\nWhere would automation save your team the most time?\n\n#WarehouseAutomation #SupplyChain #Logistics #Operations\n===SOURCES===\n- McKinsey: https://www.mckinsey.com/example-report\n===END==="
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1560,
+        -20
+      ],
+      "id": "13fd10d2-8bd3-4bf7-b369-acf6d7ecdd86",
+      "name": "Research Agent",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 8000
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($input.first().json.output || '').trim();\n\nconst between = (start, end) => {\n  const s = raw.indexOf(start);\n  if (s === -1) return '';\n  const from = s + start.length;\n  const e = raw.indexOf(end, from);\n  return (e === -1 ? raw.slice(from) : raw.slice(from, e)).trim();\n};\n\nlet post = between('===POST===', '===SOURCES===');\nif (!post) post = between('===POST===', '===END===');\nif (!post) post = raw.replace(/^TOPIC:.*\\n/im, '').replace(/^(here('|’)?s|here is)[^\\n]*:\\s*\\n+/i, ''); // fallback: model ignored the format\nconst sources = between('===SOURCES===', '===END===');\nconst topic = ((raw.match(/^TOPIC:\\s*(.+)$/im) || [])[1] || '').trim();\n\npost = post\n  .replace(/^```[a-z]*\\s*|\\s*```$/g, '')\n  .replace(/^[\"“”]+|[\"“”]+$/g, '')\n  .replace(/\\*\\*/g, '')\n  .replace(/\\s*[—–]\\s*/g, ' - ')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nconst words = post.split(/\\s+/).filter(Boolean).length;\nconst problems = [];\nif (words < 60) problems.push('post too short (' + words + ' words)');\nif (post.length > 2900) problems.push('post too long (' + post.length + ' chars)');\nif (!/#\\w+/.test(post)) problems.push('no hashtags');\nif (/\\[(source|topic|company|name|link|insert)[^\\]]*\\]|<token>|lorem ipsum/i.test(post)) problems.push('placeholder text found');\nif (problems.length) throw new Error('Post validation failed: ' + problems.join('; '));\n\nreturn [{ json: { post, topic, sources, words, chars: post.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        -20
+      ],
+      "id": "b3d6bf85-d656-41e1-b006-713c5ba0cff6",
+      "name": "Parse Post"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Linkedin Post:\n{{ $json.post }}",
+        "options": {
+          "systemMessage": "# OVERVIEW\nYou are a Visual Prompt Designer for LinkedIn. You convert any LinkedIn post into one polished prompt for a text-to-image generator. The resulting graphic is paired with the post in the feed to communicate its message in a visually engaging, professional, brand-aligned way.\n\n# INPUT\nThe user message contains the full text of a LinkedIn post. It may be short or long, in any language, and about any topic.\n\n# PROCESS (do this silently; never output these steps)\n1. Distill the post into ONE core message (a single sentence).\n2. Classify the post type using the guide below.\n3. Choose one visual metaphor and one layout that fit that type.\n4. Extract on-image text: a headline, optional subtext, and any key numbers.\n5. Write the final image prompt.\n\n# POST TYPE GUIDE\n- Data / results / case study: hero stat or before-vs-after comparison, bar/line chart or big-number callout.\n- Personal story / lesson learned: symbolic metaphor (path, bridge, door, climb, growth), warm and human but illustrated, not photographic.\n- How-to / tips / listicle: clean infographic or carousel-cover style with numbered icons or steps.\n- Opinion / hot take / myth-busting: bold typographic poster, strong contrast, split-screen \"old vs new\" or \"myth vs reality\".\n- Announcement / launch / news: hero product-style abstract visual, modern and celebratory, clear headline.\n- Milestone / achievement / hiring: badge, trophy, upward-growth or team-abstract visuals, confident and positive.\n- Technical / dev / AI / security: abstract system diagrams, nodes, circuits, shields, code-like shapes, dark or gradient background.\n- Quote / thought leadership: minimal typographic layout with the key line as the centerpiece, subtle abstract accent.\n- Event / webinar / promo: bold headline, date or topic as text, energetic geometric composition.\nIf a post mixes types, follow its strongest takeaway.\n\n# EVERY PROMPT MUST INCLUDE\n- Concept: the one idea the graphic communicates\n- Layout: e.g. split-screen, centered hero, header banner + icon row, timeline, before/after\n- Visual elements: charts, icons, abstract shapes, overlays, modern illustration, motion-like effects, or a metaphor\n- On-image text: exact headline wording, plus subtext or stat if useful\n- Typography: style only (e.g. bold sans-serif, large, high contrast)\n- Color palette: 2-4 named colors with mood\n- Style: e.g. flat vector, isometric, minimal gradient, editorial infographic, 3D-render abstract\n- Format: 1:1 square aspect ratio, clean margins, readable at small feed size\n\n# ON-IMAGE TEXT RULES\n- Image models render text poorly, so keep it minimal: headline max 8 words, subtext max 12 words, max 3 text elements in total.\n- Always write the actual words. Never use placeholders like \"header area reserved for callout text\".\n- Include numeric stats exactly as written in the post (%, $, counts, timeframes). If there are several, use only the 1-2 most impactful.\n- Match the post's language for on-image text. If the post is in Roman Urdu, Hindi, Arabic, or another non-English language, keep the on-image text short and in that language; write the rest of the prompt in English.\n- Never paste the full post or long sentences into the graphic.\n\n# STYLE GUIDELINES\n- Think like a brand designer: one clear focal point, generous whitespace, visual hierarchy, consistent palette.\n- The result must be a marketing-style graphic, never a literal scene or hyperrealistic photo.\n- Prefer metaphors and abstract or illustrated visuals over literal depictions.\n- Avoid clutter: no more than 3 focal points.\n- No real people, celebrity likenesses, brand logos, copyrighted characters, or watermarks. If people are needed, use faceless flat-illustration figures.\n- Keep tone professional and LinkedIn-appropriate, even for playful posts. For sensitive posts (layoffs, loss, health), use calm, respectful, minimal visuals with no celebratory elements.\n\n# BRAND DEFAULTS (used unless the post specifies otherwise)\nPalette: deep navy, electric blue, white, with one subtle warm accent (orange or teal). Style: modern, clean, flat-vector with soft gradients. Typography: bold sans-serif headlines.\n\n# OUTPUT RULES\n- Output ONLY the final image prompt as one plain-text paragraph of 90-160 words.\n- No headings, bullets, markdown, explanations, notes, or preamble such as \"Here is the prompt\".\n- Do not wrap the prompt in quotation marks. Quotation marks are allowed only around exact on-image text.\n- Do not repeat or rephrase the LinkedIn post.\n- If the post is too vague or empty, infer the most likely theme and still produce a complete prompt. Never ask questions or return an error.\n\n# EXAMPLES\nPost type: data/results\nA modern flat-vector marketing graphic in 1:1 format with a split-screen layout. Left side: a faded grey clock beside a long winding path labeled \"14 days\". Right side: a bright electric-blue arrow shooting upward next to a large bold \"3 days\". Headline at the top in bold white sans-serif reads \"Onboarding, 5x Faster\". Subtext below reads \"Automation replaced manual paperwork\". Palette: deep navy background, electric blue, white, subtle orange accent. Clean geometric shapes, soft gradient overlays, subtle motion lines, generous spacing, polished LinkedIn-ready style, no photorealism, no logos.\n\nPost type: personal story/lesson\nA minimal illustrated 1:1 graphic showing a faceless flat-style figure crossing a glowing bridge that connects a dark cliff of scattered gears to a bright horizon with rising sun rays. Large bold headline at the top reads \"Failure Was My Best Teacher\". Palette: deep indigo, warm gold, soft white. Soft gradients, clean sans-serif typography, calm and inspiring mood, plenty of whitespace, professional editorial style, no realistic faces, no logos.\n\nPost type: how-to/listicle\nA clean infographic-style 1:1 graphic with a bold headline at the top reading \"5 Steps to Secure Your Network\". Below it, five evenly spaced rounded cards, each with a simple line icon (shield, lock, key, eye, checkmark) and a number 1 to 5. Palette: dark navy background, cyan icons, white text, subtle teal glow. Flat vector style, strong hierarchy, generous margins, modern and readable at small feed size, no clutter, no logos."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2140,
+        -20
+      ],
+      "id": "9b658cfa-653f-4d91-9971-3eadbf502a6e",
+      "name": "image agent",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 8000
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = String($input.first().json.output || '')\n  .replace(/^```[a-z]*\\s*|\\s*```$/g, '')\n  .replace(/^[\"“”]+|[\"“”]+$/g, '')\n  .trim();\nif (p.length < 40) throw new Error('Image prompt is empty or too short');\nreturn [{ json: { image_prompt: p } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        -20
+      ],
+      "id": "b40a49fb-76a6-48be-841f-1073cdc4b479",
+      "name": "Clean Image Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-image-2\",\n  \"prompt\": {{ JSON.stringify($json.image_prompt) }},\n  \"n\": 1,\n  \"size\": \"1024x1024\"\n}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2740,
+        -20
+      ],
+      "id": "024f638d-5176-489a-ae89-5b5a77b2103b",
+      "name": "Generate Image",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "data[0].b64_json",
+        "options": {
+          "fileName": "linkedin-visual.png",
+          "mimeType": "image/png"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2980,
+        -20
+      ],
+      "id": "24630621-0380-4011-951a-571e513a2898",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "postAs": "person",
+        "text": "={{ $('Parse Post').first().json.post }}",
+        "shareMediaCategory": "IMAGE",
+        "binaryPropertyName": "data",
+        "additionalFields": {
+          "visibility": "PUBLIC"
+        }
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        3220,
+        -20
+      ],
+      "id": "59e314d6-8742-4c6e-8151-9ba458a4133b",
+      "name": "Create a post"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst topic = $('Parse Post').first().json.topic;\nsd.topics = sd.topics || [];\nif (topic) sd.topics.push(topic);\nsd.topics = sd.topics.slice(-60);\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3460,
+        -20
+      ],
+      "id": "d80dc7ca-4f01-4002-8fd6-a638dd80237e",
+      "name": "Save History"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        220
+      ],
+      "id": "2c4ae3b7-74a1-4635-9f3e-610c217a5723",
+      "name": "Groq Chat Model"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search the web with Tavily. Use it to find current facts, statistics, news, reports, and case studies. Returns up to 4 results with titles, URLs, and content excerpts.",
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": {{ JSON.stringify($fromAI('query', 'The search query', 'string')) }},\n  \"topic\": \"{{ $fromAI('search_topic', 'news for recent events or trends, otherwise general', 'string', 'general') }}\",\n  \"time_range\": \"{{ $fromAI('time_range', 'day, week, month or year', 'string', 'year') }}\",\n  \"search_depth\": \"advanced\",\n  \"chunks_per_source\": 2,\n  \"max_results\": 4,\n  \"include_answer\": false,\n  \"include_raw_content\": false,\n  \"include_images\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        1440,
+        220
+      ],
+      "id": "6baa1270-9066-4c0a-bef4-207c285edf18",
+      "name": "Tavily"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Need Topic?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need Topic?": {
+      "main": [
+        [
+          {
+            "node": "Load History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Research Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load History": {
+      "main": [
+        [
+          {
+            "node": "Topic Picker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Topic Picker": {
+      "main": [
+        [
+          {
+            "node": "Parse Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Topic": {
+      "main": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Post": {
+      "main": [
+        [
+          {
+            "node": "image agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "image agent": {
+      "main": [
+        [
+          {
+            "node": "Clean Image Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Image Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Create a post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a post": {
+      "main": [
+        [
+          {
+            "node": "Save History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Topic Picker",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Research Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "image agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily": {
+      "ai_tool": [
+        [
+          {
+            "node": "Topic Picker",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "Research Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}
