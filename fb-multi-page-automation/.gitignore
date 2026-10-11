@@ -1,0 +1,6 @@
+@'
+.env
+docker-compose.yml
+*.bak
+*.log
+'@ | Set-Content -Encoding ascii fb-multi-page-automation\.gitignore
