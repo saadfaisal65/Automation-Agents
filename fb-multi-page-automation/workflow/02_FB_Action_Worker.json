@@ -1,0 +1,918 @@
+{
+  "name": "FB Multi 2 - Action Worker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "40691b9f-26ca-4399-a6c7-bc42910a8424",
+      "name": "Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_actions SET status='scheduled', updated_at=now() WHERE status='processing' AND updated_at < now() - interval '10 minutes'",
+        "options": {}
+      },
+      "id": "f40229d8-580c-4e4e-ada5-717190e187a8",
+      "name": "Recover Stuck",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_jobs j SET status = CASE WHEN EXISTS (SELECT 1 FROM fb_actions a WHERE a.job_id=j.id AND a.status='failed') THEN 'completed_with_errors' ELSE 'completed' END\nWHERE j.status='scheduled' AND EXISTS (SELECT 1 FROM fb_actions a WHERE a.job_id=j.id)\nAND NOT EXISTS (SELECT 1 FROM fb_actions a WHERE a.job_id=j.id AND a.status IN ('scheduled','processing','pending_approval'))",
+        "options": {}
+      },
+      "id": "72502232-50e9-4577-a583-cba7babc1683",
+      "name": "Finalize Jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH due AS (\n  SELECT id FROM fb_actions WHERE status='scheduled' AND run_at <= now() ORDER BY run_at LIMIT 5 FOR UPDATE SKIP LOCKED)\nUPDATE fb_actions a SET status='processing', attempts=a.attempts+1, updated_at=now()\nFROM due WHERE a.id=due.id RETURNING a.id",
+        "options": {}
+      },
+      "id": "010ed0eb-6a3a-4c24-9345-3706dc1bb6ef",
+      "name": "Claim Due Actions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id AS action_id, a.action_type, a.text, a.attempts,\nac.id AS account_id, ac.name, ac.page_id, ac.access_token, ac.daily_cap, ac.active, ac.paused_until,\nj.id AS job_id, j.status AS job_status, j.fb_post_id, j.permalink,\n(SELECT count(*) FROM fb_actions x WHERE x.account_id=a.account_id AND x.status='done' AND x.updated_at > now() - interval '24 hours') AS done_24h,\ncoalesce((SELECT v FROM fb_settings WHERE k='alert_url'),'') AS alert_url\nFROM fb_actions a JOIN fb_accounts ac ON ac.id=a.account_id JOIN fb_jobs j ON j.id=a.job_id WHERE a.id=$1::int",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      },
+      "id": "730f7a18-07fd-47c6-8b87-bdca5fd41284",
+      "name": "Load Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $json;\nconst now = Date.now();\nlet route = 'go', minutes = 0, reason = '';\nif (c.job_status === 'cancelled') { route = 'skip'; reason = 'Job cancelled'; }\nelse if (!c.active) { route = 'skip'; reason = 'Account inactive / token invalid'; }\nelse if (c.action_type === 'comment' && (!c.text || !c.fb_post_id)) { route = 'skip'; reason = 'Comment text ya post id missing'; }\nelse if (c.paused_until && new Date(c.paused_until).getTime() > now) { route = 'defer'; minutes = Math.ceil((new Date(c.paused_until).getTime() - now) / 60000) + 1; reason = 'Account paused (rate limit/block)'; }\nelse if (Number(c.done_24h) >= Number(c.daily_cap)) { route = 'defer'; minutes = 60; reason = 'Daily cap reached'; }\nreturn { json: { ...c, route, minutes, reason } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "7058f49c-fab3-4353-a211-a86ce16db889",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "3e78ddb3-b390-43a8-af3b-11f7b8529ac1",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "go",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "go"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "b9f50b8e-ad98-4d8d-8be3-957eaffd53c1",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "defer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "defer"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "fec2444f-0899-4dbf-8efe-83dc47169dd6",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "skip",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "skip"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "709b94a6-ec4a-4d25-b087-6203af16c5cc",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $json;\nlet url, body;\nif (c.action_type === 'comment') { url = 'https://graph.facebook.com/v21.0/' + c.fb_post_id + '/comments'; body = { message: c.text }; }\nelse { url = 'https://graph.facebook.com/v21.0/' + c.page_id + '/feed'; body = { link: c.permalink }; }\nreturn { json: { ...c, url, body } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "b3f5689c-b712-4d67-92d9-ce655b705a54",
+      "name": "Build Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "id": "77f65efc-d4fe-4793-b1db-557c5ccfd018",
+      "name": "Send to Facebook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Build Request').item.json;\nconst r = $json;\nconst body = r.body || {};\nconst err = r.error || body.error || null;\nconst sc = r.statusCode || 0;\nif (!err && sc >= 200 && sc < 300 && (body.id || body.success)) {\n  return { json: { outcome: 'done', action_id: c.action_id, account_id: c.account_id, result_id: String(body.id || 'ok'), alert: false } };\n}\nconst code = (err && typeof err === 'object') ? Number(err.code || 0) : 0;\nconst msg = ((err && (err.message || err.description)) || (typeof err === 'string' ? err : JSON.stringify(err || body))).toString().slice(0, 400);\nlet status = 'scheduled', delay = 5 * Math.max(1, Number(c.attempts)), disable = false, pause = 0, alert = false;\nif ([190, 102].includes(code)) { status = 'failed'; disable = true; alert = true; delay = 0; }\nelse if (code === 368) { delay = 1440; pause = 1440; alert = true; }\nelse if ([4, 17, 32, 613].includes(code) || (code >= 80000 && code <= 80010)) { delay = 60; pause = 60; }\nelse if ([10, 200, 299, 100, 803, 506].includes(code)) { status = 'failed'; alert = true; delay = 0; }\nelse if (sc >= 500 || !sc || [1, 2].includes(code)) { /* transient: retry with backoff */ }\nelse { status = 'failed'; alert = true; delay = 0; }\nif (status === 'scheduled' && Number(c.attempts) >= 4) { status = 'failed'; alert = true; delay = 0; }\nconst text = 'FB action FAIL - job #' + c.job_id + ', ' + c.action_type + ' by ' + c.name + ': ' + msg + ' (code ' + code + ', http ' + sc + ') -> ' + status + (disable ? ', ACCOUNT DISABLED' : '');\nreturn { json: { outcome: 'error', action_id: c.action_id, account_id: c.account_id, new_status: status,\n  delay: status === 'scheduled' ? Math.max(1, delay) : 0, disable, pause, error: msg, alert: alert && !!c.alert_url,\n  alert_url: c.alert_url || '', alert_text: text } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "54d111e1-1780-4a89-a420-695ef2e5eb9d",
+      "name": "Evaluate Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "7be5564d-4ad9-4ec3-8bbb-c0ebaf530b69",
+              "leftValue": "={{ $json.outcome === 'done' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc0cf840-2f8b-4434-8f5e-a3ee07cfd06a",
+      "name": "Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2220,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_actions SET status='done', fb_result_id=$2, last_error=NULL, updated_at=now() WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.action_id, $json.result_id ] }}"
+        }
+      },
+      "id": "29c8e63c-7932-456a-81a2-010c91a18a06",
+      "name": "Mark Done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2460,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH a AS (\n  UPDATE fb_actions SET status=$2, run_at=now() + make_interval(mins => $3::int), last_error=$4, updated_at=now() WHERE id=$1::int RETURNING id)\nUPDATE fb_accounts SET\n  token_status = CASE WHEN $5::boolean THEN 'invalid' ELSE token_status END,\n  active = CASE WHEN $5::boolean THEN false ELSE active END,\n  paused_until = CASE WHEN $6::int > 0 THEN now() + make_interval(mins => $6::int) ELSE paused_until END\nWHERE id=$7::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.action_id, $json.new_status, $json.delay, $json.error, $json.disable, $json.pause, $json.account_id ] }}"
+        }
+      },
+      "id": "a934b4b3-69f0-4edc-8d58-c7066931b140",
+      "name": "Record Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2460,
+        -20
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bc0bbc86-ca98-41d9-b8de-4b2ee71373a1",
+              "leftValue": "={{ $('Evaluate Action').item.json.alert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4c785b0e-d26f-44a8-812a-417a34cd1771",
+      "name": "Alert Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2700,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Evaluate Action').item.json.alert_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Evaluate Action').item.json.alert_text, content: $('Evaluate Action').item.json.alert_text }) }}"
+      },
+      "id": "9b80f0bc-89a8-4ccd-88cf-93c808dd782f",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2940,
+        -60
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_actions SET status='scheduled', attempts=GREATEST(attempts-1,0), run_at=now() + make_interval(mins => $2::int), last_error=$3, updated_at=now() WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.action_id, $json.minutes, $json.reason ] }}"
+        }
+      },
+      "id": "fb7766d3-3aaa-4321-8ae9-bfc004a1aeff",
+      "name": "Defer Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1560,
+        120
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_actions SET status='cancelled', last_error=$2, updated_at=now() WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.action_id, $json.reason ] }}"
+        }
+      },
+      "id": "e4ed6e17-9bb2-4cfa-b1ee-2fd37994992f",
+      "name": "Skip Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1560,
+        280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "e0ef0d8b-9272-460e-a9b0-b895b7f3db72",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, page_id, access_token, coalesce((SELECT v FROM fb_settings WHERE k='alert_url'),'') AS alert_url FROM fb_accounts WHERE active",
+        "options": {}
+      },
+      "id": "add08fb1-80db-4381-9998-53774a1add41",
+      "name": "List Active Accounts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        220,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $json.page_id + '?fields=id,name' }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "3cec306b-01b7-4faf-9084-0fea4a1c123f",
+      "name": "Check Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const a = $('List Active Accounts').item.json;\nconst r = $json;\nconst body = r.body || {};\nconst err = r.error || body.error || null;\nconst code = (err && typeof err === 'object') ? Number(err.code || 0) : 0;\nconst bad = !!err && [190, 102, 10, 200].includes(code);\nreturn { json: { bad, account_id: a.id, name: a.name, alert_url: a.alert_url || '',\n  alert_text: 'FB token invalid - account \"' + a.name + '\" disable kar diya gaya. Naya token add karein.' } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "7dd9a552-5ba3-4f04-829a-70ea137137f9",
+      "name": "Evaluate Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "6e4fd828-79e5-4b8c-bd4f-5bffef281949",
+              "leftValue": "={{ $json.bad }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2ef9b6de-7b66-4e99-bc29-d1c26201aa5a",
+      "name": "Token Bad?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_accounts SET token_status='invalid', active=false WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.account_id ] }}"
+        }
+      },
+      "id": "f402f536-9c66-48c6-8b5a-6f450088d49f",
+      "name": "Disable Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1100,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ef0b3ff6-7eca-4b0a-8f49-1968ab405bfb",
+              "leftValue": "={{ !!$('Evaluate Token').item.json.alert_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "609cfa15-fa19-45f6-b8a0-9a265c24a848",
+      "name": "Token Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Evaluate Token').item.json.alert_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Evaluate Token').item.json.alert_text, content: $('Evaluate Token').item.json.alert_text }) }}"
+      },
+      "id": "5fb9a48f-3de9-425d-994b-66a498e6a339",
+      "name": "Send Token Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Recover Stuck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Stuck": {
+      "main": [
+        [
+          {
+            "node": "Finalize Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Jobs": {
+      "main": [
+        [
+          {
+            "node": "Claim Due Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Due Actions": {
+      "main": [
+        [
+          {
+            "node": "Load Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Context": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Build Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Defer Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Request": {
+      "main": [
+        [
+          {
+            "node": "Send to Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Facebook": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Action": {
+      "main": [
+        [
+          {
+            "node": "Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Mark Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Failure": {
+      "main": [
+        [
+          {
+            "node": "Alert Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Needed?": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "List Active Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Active Accounts": {
+      "main": [
+        [
+          {
+            "node": "Check Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Token": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Token": {
+      "main": [
+        [
+          {
+            "node": "Token Bad?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Bad?": {
+      "main": [
+        [
+          {
+            "node": "Disable Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disable Account": {
+      "main": [
+        [
+          {
+            "node": "Token Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Alert?": {
+      "main": [
+        [
+          {
+            "node": "Send Token Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

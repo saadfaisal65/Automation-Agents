@@ -1,0 +1,945 @@
+{
+  "name": "FB Multi 1 - Panel, Publish & Plan",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "fb-panel",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2d501cd4-aac6-4a73-8655-ab907f6712f3",
+      "name": "Panel Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "dd312f42-3a02-4de1-ae82-ae7f7fd24f60"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FB Multi-Page Panel</title>\n<style>\nbody{font-family:system-ui,Arial,sans-serif;background:#f0f2f5;margin:0;padding:16px;color:#1c1e21}\n.card{background:#fff;max-width:720px;margin:0 auto 16px;padding:18px;border-radius:10px;box-shadow:0 1px 3px #0002}\nh2{margin:0 0 12px;font-size:18px}label{display:block;margin:10px 0 4px;font-weight:600;font-size:14px}\ninput,select,textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid #ccd0d5;border-radius:6px;font-size:14px}\n.row{display:flex;gap:10px}.row>div{flex:1}\n.chk{display:flex;align-items:center;gap:8px;margin:4px 0;font-weight:400}.chk input{width:auto}\nbutton{background:#1877f2;color:#fff;border:0;padding:10px 14px;border-radius:6px;font-weight:600;cursor:pointer;margin:8px 8px 0 0}\nbutton.red{background:#d93025}button.grey{background:#65676b}button.green{background:#188038}\n#msg,#out{white-space:pre-wrap;font-size:13px;margin-top:10px}.err{color:#d93025}.ok{color:#188038}\ntable{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #eee;padding:6px;text-align:left;vertical-align:top}\n</style></head><body>\n<div class=\"card\"><h2>Access</h2><label>Panel key</label><input id=\"key\" type=\"password\" autocomplete=\"off\">\n<button onclick=\"loadAccounts()\">Accounts load karein</button><div id=\"msg\"></div></div>\n\n<div class=\"card\" id=\"form\" style=\"display:none\"><h2>Naya Post</h2>\n<label>Kis account se post karni hai?</label><select id=\"src\" onchange=\"renderTargets()\"></select>\n<label>Baqi accounts jo react karenge</label><div id=\"targets\"></div>\n<label>Post type</label><select id=\"ptype\" onchange=\"toggleMedia()\"><option value=\"text\">Text</option><option value=\"photo\">Photo</option><option value=\"video\">Video</option></select>\n<div id=\"mediaBox\" style=\"display:none\"><label>Media URL (public https link)</label><input id=\"media\" placeholder=\"https://...\"></div>\n<label>Message / Caption</label><textarea id=\"message\" rows=\"4\"></textarea>\n<div class=\"row\"><div><label>Min gap (minutes)</label><input id=\"dmin\" type=\"number\" value=\"10\" min=\"1\"></div>\n<div><label>Max gap (minutes)</label><input id=\"dmax\" type=\"number\" value=\"60\" min=\"1\"></div></div>\n<label>Comments</label><select id=\"cmode\"><option value=\"approval\" selected>Approval ke baad (recommended)</option><option value=\"auto\">Auto</option><option value=\"off\">Off</option></select>\n<label>Comment language</label>\n<label class=\"chk\"><input type=\"checkbox\" class=\"lang\" value=\"english\"> English</label>\n<label class=\"chk\"><input type=\"checkbox\" class=\"lang\" value=\"roman_urdu\"> Roman Urdu</label>\n<label class=\"chk\"><input type=\"checkbox\" class=\"lang\" value=\"mixed\" checked> Mix (English + Roman Urdu)</label>\n<label class=\"chk\"><input type=\"checkbox\" id=\"share\"> Baqi accounts post ka link share bhi karein</label>\n<button onclick=\"submitJob()\">Publish + Schedule</button></div>\n\n<div class=\"card\"><h2>Job Control</h2><input id=\"jobid\" type=\"number\" placeholder=\"Job ID\">\n<button class=\"grey\" onclick=\"ctl('status')\">Status</button>\n<button class=\"grey\" onclick=\"ctl('preview')\">Comments dekhein</button>\n<button class=\"green\" onclick=\"ctl('approve')\">Approve</button>\n<button class=\"red\" onclick=\"ctl('cancel')\">Job cancel</button>\n<button class=\"red\" onclick=\"killAll()\">KILL SWITCH (sab rokein)</button>\n<div id=\"out\"></div></div>\n<script>\nconst $=id=>document.getElementById(id);\nlet accounts=[];\nconst key=()=>$('key').value.trim();\ntry{$('key').value=localStorage.getItem('fbkey')||'';}catch(e){}\nfunction esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));}\nfunction say(t,c){$('msg').className=c||'';$('msg').textContent=t;}\nasync function api(path,opt){\n  const r=await fetch(path,opt);let d=null;\n  try{d=await r.json();}catch(e){}\n  if(!r.ok)throw new Error((d&&d.errors&&d.errors.join(', '))||(d&&d.message)||('HTTP '+r.status));\n  return d;\n}\nasync function loadAccounts(){\n  try{\n    try{localStorage.setItem('fbkey',key());}catch(e){}\n    const d=await api('fb-accounts?key='+encodeURIComponent(key()));\n    accounts=(Array.isArray(d)?d:[]).filter(a=>a&&a.id);\n    if(!accounts.length){say('Koi account nahi mila (key ghalat hai ya accounts add nahi).','err');return;}\n    $('src').innerHTML=accounts.map(a=>'<option value=\"'+a.id+'\">'+esc(a.name)+'</option>').join('');\n    renderTargets();$('form').style.display='block';say('Accounts load: '+accounts.length,'ok');\n  }catch(e){say(e.message,'err');}\n}\nfunction renderTargets(){\n  const s=$('src').value;\n  $('targets').innerHTML=accounts.filter(a=>String(a.id)!==s).map(a=>\n    '<label class=\"chk\"><input type=\"checkbox\" class=\"tgt\" value=\"'+a.id+'\" checked> '+esc(a.name)+'</label>').join('')||'<i>Sirf 1 account hai</i>';\n}\nfunction toggleMedia(){$('mediaBox').style.display=$('ptype').value==='text'?'none':'block';}\nasync function submitJob(){\n  const body={key:key(),source_account_id:+$('src').value,\n    target_ids:[...document.querySelectorAll('.tgt:checked')].map(c=>+c.value),\n    post_type:$('ptype').value,message:$('message').value,media_url:$('media')?$('media').value:'',\n    delay_min:+$('dmin').value,delay_max:+$('dmax').value,comment_mode:$('cmode').value,\n    share_enabled:$('share').checked,languages:[...document.querySelectorAll('.lang:checked')].map(c=>c.value)};\n  const name=(accounts.find(a=>a.id==body.source_account_id)||{}).name;\n  if(!confirm('Post \"'+name+'\" se publish hogi. Confirm?'))return;\n  try{\n    const d=await api('fb-submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});\n    $('jobid').value=d.job_id;\n    say('Job #'+d.job_id+' queue ho gaya. Status/Preview Job Control se dekhein.','ok');\n  }catch(e){say(e.message,'err');}\n}\nfunction table(rows){\n  if(!Array.isArray(rows)||!rows.length||!rows[0]||!Object.keys(rows[0]).length)return '<i>Kuch nahi mila</i>';\n  const h=Object.keys(rows[0]);\n  return '<table><tr>'+h.map(k=>'<th>'+esc(k)+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+h.map(k=>'<td>'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</table>';\n}\nasync function ctl(op){\n  const id=$('jobid').value;\n  if(!id){$('out').textContent='Job ID likhein';return;}\n  if(op==='cancel'&&!confirm('Job cancel karni hai?'))return;\n  try{\n    const d=await api('fb-control?op='+op+'&job_id='+encodeURIComponent(id)+'&key='+encodeURIComponent(key()));\n    $('out').innerHTML=table(d);\n  }catch(e){$('out').textContent=e.message;}\n}\nasync function killAll(){\n  if(!confirm('SAB pending/scheduled actions cancel ho jayenge. Pakka?'))return;\n  try{const d=await api('fb-control?op=killswitch&job_id=0&key='+encodeURIComponent(key()));$('out').innerHTML=table(d);}\n  catch(e){$('out').textContent=e.message;}\n}\n</script></body></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "4af2ba68-bfeb-4f85-b0a9-3e0f7d9502c3",
+      "name": "Serve Panel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "fb-accounts",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7db9911a-13df-402d-9cd1-fa02511e94d7",
+      "name": "Accounts API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "004e35d8-a16e-451b-8b32-f52ffb8371a7"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.name, a.page_id, a.token_status FROM fb_accounts a WHERE a.active AND EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1) ORDER BY a.name",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '' ] }}"
+        }
+      },
+      "id": "901d2cae-5c01-40db-b621-846476c08bc4",
+      "name": "List Accounts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "acf8afe9-ab33-4d46-8b36-43eabab02a19",
+      "name": "Respond Accounts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "path": "fb-submit",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "420e4da8-7909-485f-a397-6a35816b3dd8",
+      "name": "Submit Job",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        420
+      ],
+      "webhookId": "91eaf0d4-98d2-4d38-8dac-723a1f82aa27"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || {};\nconst errors = [];\nconst num = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };\nconst src = num(b.source_account_id, 0);\nlet targets = Array.isArray(b.target_ids) ? b.target_ids.map(x => num(x, 0)).filter(x => x > 0 && x !== src) : [];\ntargets = [...new Set(targets)];\nif (!b.key) errors.push('Access key missing');\nif (!src) errors.push('Source account select karein');\nif (!targets.length) errors.push('Kam az kam 1 target account select karein');\nif (!['text', 'photo', 'video'].includes(b.post_type)) errors.push('Post type ghalat hai');\nconst message = (b.message || '').toString().trim();\nconst media = (b.media_url || '').toString().trim();\nif (b.post_type === 'text' && !message) errors.push('Text post ke liye message zaroori hai');\nif (['photo', 'video'].includes(b.post_type) && !/^https:\\/\\/\\S+$/i.test(media)) errors.push('Photo/Video ke liye public https media URL dein');\nif (message.length > 5000) errors.push('Message 5000 characters se zyada nahi ho sakta');\nlet dmin = num(b.delay_min, 10), dmax = num(b.delay_max, 60);\nif (dmin < 1) dmin = 1;\nif (dmax < dmin) dmax = dmin;\nif (dmax > 1440) errors.push('Max gap 1440 minute se zyada nahi ho sakta');\nconst mode = ['off', 'approval', 'auto'].includes(b.comment_mode) ? b.comment_mode : 'approval';\nconst langs = (Array.isArray(b.languages) ? b.languages : []).filter(l => ['english', 'roman_urdu', 'mixed'].includes(l));\nreturn [{ json: { ok: errors.length === 0, errors, key: String(b.key || ''), source: src, targets,\n  post_type: b.post_type, message, media, dmin, dmax, mode, share: !!b.share_enabled,\n  langs: langs.length ? langs : ['mixed'] } }];"
+      },
+      "id": "ba7c5688-cf3e-4939-999d-e9caf728f5f5",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "908418c6-be04-4207-9856-be21c27e923b",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "117e1078-0693-4073-8852-5f25293b1c4d",
+      "name": "Input OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "fa89053d-511d-49c7-b471-0451916e5622",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO fb_jobs (source_account_id, post_type, message, media_url, delay_min, delay_max, comment_mode, share_enabled, target_ids, languages, status)\nSELECT $2::int, $3, $4, $5, $6::int, $7::int, $8, $9::boolean, $10::jsonb, $11::jsonb, 'publishing'\nWHERE EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1)\nAND EXISTS (SELECT 1 FROM fb_accounts WHERE id=$2::int AND active)\nAND NOT EXISTS (SELECT 1 FROM fb_jobs WHERE source_account_id=$2::int AND coalesce(message,'')=$4 AND coalesce(media_url,'')=$5 AND created_at > now() - interval '10 minutes')\nRETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.key, $json.source, $json.post_type, $json.message, $json.media, $json.dmin, $json.dmax, $json.mode, $json.share, JSON.stringify($json.targets), JSON.stringify($json.langs) ] }}"
+        }
+      },
+      "id": "181c38c1-f833-45d6-b7fb-619b6b0d1b1d",
+      "name": "Insert Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        380
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "397f35bc-d7b6-49be-a2b9-3ea2f6e35cde",
+              "leftValue": "={{ !!$json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f0b46be0-0bae-4332-9e60-d7fa2ddab4f4",
+      "name": "Inserted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: ['Rejected: key ghalat, account inactive, ya same post 10 minute ke andar dobara submit hui'] }) }}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "0f3c30c9-3cff-4ee0-abcc-6e2243c6456f",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, job_id: $json.id, message: 'Job queued' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "6199d8f1-62b8-4bc5-b864-b6021ad25cf0",
+      "name": "Respond Queued",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT j.id AS job_id, j.post_type, j.message, j.media_url, j.delay_min, j.delay_max, j.comment_mode, j.share_enabled, j.target_ids, j.languages,\na.name AS source_name, a.page_id, a.access_token,\n(SELECT v FROM fb_settings WHERE k='alert_url') AS alert_url\nFROM fb_jobs j JOIN fb_accounts a ON a.id=j.source_account_id WHERE j.id=$1::int",
+        "options": {
+          "queryReplacement": "={{ [ $('Insert Job').first().json.id ] }}"
+        }
+      },
+      "id": "b768770f-f1ac-47da-a473-ac8db53a32e0",
+      "name": "Load Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $('Load Job').first().json;\nconst base = 'https://graph.facebook.com/v21.0/' + j.page_id;\nlet url, body;\nif (j.post_type === 'photo') { url = base + '/photos'; body = { url: j.media_url, caption: j.message || '', published: true }; }\nelse if (j.post_type === 'video') { url = base + '/videos'; body = { file_url: j.media_url, description: j.message || '' }; }\nelse { url = base + '/feed'; body = { message: j.message }; }\nreturn [{ json: { job_id: j.job_id, access_token: j.access_token, url, body } }];"
+      },
+      "id": "a7494989-44c9-499e-88b7-7c709b78a2ba",
+      "name": "Build Publish Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "id": "c1741807-95f6-4ef4-8bfa-c7287c63a867",
+      "name": "Publish to Facebook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Build Publish Request').first().json;\nconst j = $('Load Job').first().json;\nconst r = $input.first().json;\nconst body = r.body || {};\nconst err = r.error || body.error || null;\nconst sc = r.statusCode || 0;\nconst oid = body.post_id || body.id;\nif (!err && sc >= 200 && sc < 300 && oid) {\n  return [{ json: { ok: true, job_id: ctx.job_id, object_id: String(oid), access_token: ctx.access_token } }];\n}\nconst msg = ((err && (err.message || err.description)) || (typeof err === 'string' ? err : JSON.stringify(err || body))).toString().slice(0, 500);\nconst code = err && typeof err === 'object' && err.code ? ' (code ' + err.code + ')' : '';\nreturn [{ json: { ok: false, job_id: ctx.job_id, error: msg + code, alert_url: j.alert_url || '',\n  alert_text: 'FB post FAIL - Job #' + ctx.job_id + ' (' + j.source_name + '): ' + msg + code } }];"
+      },
+      "id": "c667d6e9-408e-4fc2-b301-5e2a5c28e2c7",
+      "name": "Evaluate Publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0a280b12-23d5-4f50-b759-fdc282222c6d",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ec4afcb2-6ed6-4f3d-9c7c-6a07cf7eaf9b",
+      "name": "Published?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $json.object_id + '?fields=permalink_url' }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "b1a418be-8c15-4d9a-8cd8-be2d9c2d0359",
+      "name": "Get Permalink",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const pub = $('Evaluate Publish').first().json;\nconst pl = $input.first().json;\nlet link = (pl.body && pl.body.permalink_url) || '';\nif (link.startsWith('/')) link = 'https://www.facebook.com' + link;\nif (!link) link = 'https://www.facebook.com/' + pub.object_id;\nreturn [{ json: { job_id: pub.job_id, object_id: pub.object_id, permalink: link } }];"
+      },
+      "id": "cb281059-e1e8-4bef-b18a-e6d0c00466d9",
+      "name": "Normalize Post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_jobs SET status='posted', fb_post_id=$2, permalink=$3 WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.job_id, $json.object_id, $json.permalink ] }}"
+        }
+      },
+      "id": "2a4a8730-d90f-4f3a-9eac-bfd76d3d68c7",
+      "name": "Mark Posted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3120,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name FROM fb_accounts WHERE active AND id IN (SELECT jsonb_array_elements_text(target_ids)::int FROM fb_jobs WHERE id=$1::int)",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Post').first().json.job_id ] }}"
+        }
+      },
+      "id": "2a664726-3ba0-4104-9f8f-2308f48178ee",
+      "name": "Load Targets",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3360,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $('Load Job').first().json;\nconst post = $('Normalize Post').first().json;\nconst targets = $('Load Targets').all().map(i => i.json).filter(t => t.id);\nconst hdr = ($('Submit Job').first().json.headers) || {};\nconst base = (hdr['x-forwarded-proto'] || 'https') + '://' + (hdr['x-forwarded-host'] || hdr.host || 'YOUR-N8N-HOST');\nconst parse = v => (typeof v === 'string' ? JSON.parse(v) : v) || [];\nconst langs = parse(job.languages).length ? parse(job.languages) : ['mixed'];\nconst dmin = Math.max(1, Number(job.delay_min)), dmax = Math.max(dmin, Number(job.delay_max));\nconst mode = job.comment_mode;\nconst rnd = (a, b) => a + Math.random() * (b - a);\nconst shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };\n\nconst msg = (job.message || '').toLowerCase();\nconst has = re => re.test(msg);\nlet topic = 'general';\nif (has(/mubarak|congrat|badhai|winner|graduat|anniversary|birthday|eid/)) topic = 'celebrate';\nelse if (has(/food|recipe|biryani|karahi|pizza|burger|restaurant|khana|chai|dessert|cafe/)) topic = 'food';\nelse if (has(/travel|trip|tour|hunza|swat|murree|beach|mountain|vacation|safar|view/)) topic = 'travel';\nelse if (has(/motivat|success|hard work|mehnat|dream|believe|quote|zindagi/)) topic = 'motivation';\nelse if (job.post_type === 'video') topic = 'video';\nelse if (job.post_type === 'photo') topic = 'photo';\n\nconst BANK = {\n  english: {\n    general: ['Love this! ❤️', 'Awesome post 👏', 'Great stuff, keep it up 🔥', 'Really well done!', 'This is brilliant 😍', 'Wow, nicely done 👌', 'Absolutely love it ❤️', 'Super impressive 🙌', 'Looks fantastic!', 'Well said 👏', 'Keep up the great work 💪', 'Brilliant! 🔥'],\n    video: ['Great video 🎥🔥', 'Loved watching this ❤️', 'Superb content 👏', 'This video is amazing 😍', 'Quality content, keep sharing!'],\n    photo: ['Beautiful shot 📸😍', 'Stunning picture ❤️', 'Love this photo 🔥', 'What a great frame!', 'Looks amazing 😍'],\n    food: ['This looks delicious 😋', 'Yummy! 🤤🔥', \"Now I'm hungry 😍\", 'Mouth-watering 😋'],\n    travel: ['What a view 😍', 'Beautiful place ❤️', 'Dream destination ✈️🔥', 'Stunning scenery!'],\n    celebrate: ['Congratulations! 🎉', 'Many congratulations ❤️', 'Well deserved 👏', 'Huge congrats 🥳'],\n    motivation: ['So true 👏', 'Great reminder 💯', 'Needed this today ❤️', 'Powerful words 🔥']\n  },\n  roman_urdu: {\n    general: ['Mashallah ❤️', 'Bohat khoob 👏', 'Zabardast yaar 🔥', 'Wah wah, kamaal kar diya 😍', 'Bohat acha laga ❤️', 'Shabash, aise hi karte raho 💪', 'Kya baat hai! 👌', 'Dil khush kar diya ❤️', 'Bohat umda 👏', 'Lajawab 🔥', 'Allah aap ko kamyab kare ❤️', 'Kamaal hai bhai 😍'],\n    video: ['Zabardast video 🎥🔥', 'Maza aa gaya dekh kar ❤️', 'Bohat acha content hai 👏', 'Kamaal ki video hai 😍'],\n    photo: ['Bohat khoobsurat picture 📸😍', 'Mashallah kya baat hai ❤️', 'Lajawab tasveer 🔥', 'Wah, kamaal ki photo 👌'],\n    food: ['Dekh kar hi munh mein pani aa gaya 😋', 'Bohat mazedar lag raha hai 🤤', 'Zabardast 😍🔥', 'Bhook lag gayi 😋'],\n    travel: ['Mashallah kya nazara hai 😍', 'Bohat khoobsurat jagah ❤️', 'Wah, dil khush ho gaya 🔥', 'Zabardast jagah hai!'],\n    celebrate: ['Bohat bohat mubarak ho 🎉', 'Mubarak ho ❤️', 'Allah barkat de 🤲', 'Dher saari mubarakbaad 🥳'],\n    motivation: ['Bilkul sahi baat 👏', 'Sach kaha ❤️', 'Bohat acha reminder 💯', 'Zabardast soch 🔥']\n  }\n};\nBANK.mixed = {};\nfor (const k of Object.keys(BANK.english)) BANK.mixed[k] = BANK.english[k].concat(BANK.roman_urdu[k]);\nBANK.mixed.general.push('Wow bhai, zabardast! 😍', 'Love this, mashallah ❤️', 'Superb yaar 🔥', 'Bohat nice post 👏', 'Great work, shabash! 💪', 'Kya baat hai, awesome 😍');\nconst REACT = ['❤️❤️❤️', '🔥🔥🔥', '😍😍', '👏👏👏', 'Wow! 😮', 'Wow 😍', '💯🔥'];\n\nconst pool = [];\nfor (const l of langs) { const b = BANK[l]; if (!b) continue; pool.push(...(b[topic] || []), ...b.general); }\npool.push(...REACT);\nconst uniq = shuffle([...new Set(pool)]);\nconst extra = ['❤️', '🔥', '😍', '👏', '💯', '🙌'];\nlet ci = 0;\nconst nextComment = () => {\n  if (ci < uniq.length) return uniq[ci++];\n  return uniq[Math.floor(Math.random() * uniq.length)] + ' ' + extra[Math.floor(Math.random() * extra.length)];\n};\n\nconst actions = [];\nconst plan = (type) => {\n  let t = Date.now() + rnd(dmin, dmax) * 60000;\n  for (const acc of shuffle(targets)) {\n    actions.push({\n      account_id: acc.id, action_type: type,\n      text: type === 'comment' ? nextComment() : '',\n      run_at: new Date(t).toISOString(),\n      status: mode === 'approval' ? 'pending_approval' : 'scheduled'\n    });\n    t += rnd(dmin, dmax) * 60000;\n  }\n};\nif (mode !== 'off') plan('comment');\nif (job.share_enabled) plan('share');\n\nlet jobStatus = 'scheduled';\nif (!actions.length) jobStatus = 'completed';\nelse if (mode === 'approval') jobStatus = 'awaiting_approval';\nconst alertUrl = job.alert_url || '';\nconst alert = mode === 'approval' && actions.length > 0 && !!alertUrl;\nreturn [{ json: { job_id: job.job_id, actions, job_status: jobStatus, alert, alert_url: alertUrl,\n  alert_text: 'Job #' + job.job_id + ' post ho gaya (' + post.permalink + '). ' + actions.length + ' actions approval ka intezar kar rahe hain. Panel: ' + base + '/webhook/fb-panel' } }];"
+      },
+      "id": "319811b9-161e-4a53-acb7-4f719e5e3fa7",
+      "name": "Plan Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO fb_actions (job_id, account_id, action_type, text, run_at, status)\n  SELECT $1::int, (x->>'account_id')::int, x->>'action_type', x->>'text', (x->>'run_at')::timestamptz, x->>'status'\n  FROM jsonb_array_elements($2::jsonb) x RETURNING id)\nUPDATE fb_jobs SET status=$3 WHERE id=$1::int RETURNING id, (SELECT count(*) FROM ins) AS actions_created",
+        "options": {
+          "queryReplacement": "={{ [ $json.job_id, JSON.stringify($json.actions), $json.job_status ] }}"
+        }
+      },
+      "id": "0d844e55-22da-49b1-acd4-00e9420d19ab",
+      "name": "Save Actions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3840,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1bbb1dd4-c9b5-4089-a514-0d9f11eaea8c",
+              "leftValue": "={{ $('Plan Actions').first().json.alert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b065dbe3-d5a1-4bca-bbe6-236b5e230f4c",
+      "name": "Approval Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4080,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Plan Actions').first().json.alert_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Plan Actions').first().json.alert_text, content: $('Plan Actions').first().json.alert_text }) }}"
+      },
+      "id": "acfc3d6e-056f-4bd0-9fdc-cb66528a8658",
+      "name": "Send Approval Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_jobs SET status='failed', error=$2 WHERE id=$1::int RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.job_id, $json.error ] }}"
+        }
+      },
+      "id": "3f8da6e3-317c-470e-bf9e-23dacdcfb2e5",
+      "name": "Mark Job Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2640,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1d0624a6-c87d-4f89-9a7c-96fb86c199c7",
+              "leftValue": "={{ !!$('Evaluate Publish').first().json.alert_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11a9acae-6e55-4043-bfac-becefe3b52c1",
+      "name": "Failure Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Evaluate Publish').first().json.alert_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Evaluate Publish').first().json.alert_text, content: $('Evaluate Publish').first().json.alert_text }) }}"
+      },
+      "id": "de33dc52-32a7-48ce-b24d-d540fe4535e5",
+      "name": "Send Failure Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Panel Page": {
+      "main": [
+        [
+          {
+            "node": "Serve Panel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accounts API": {
+      "main": [
+        [
+          {
+            "node": "List Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Accounts": {
+      "main": [
+        [
+          {
+            "node": "Respond Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Job": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Input OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input OK?": {
+      "main": [
+        [
+          {
+            "node": "Insert Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Job": {
+      "main": [
+        [
+          {
+            "node": "Inserted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserted?": {
+      "main": [
+        [
+          {
+            "node": "Respond Queued",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Queued": {
+      "main": [
+        [
+          {
+            "node": "Load Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Job": {
+      "main": [
+        [
+          {
+            "node": "Build Publish Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Publish Request": {
+      "main": [
+        [
+          {
+            "node": "Publish to Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to Facebook": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Publish": {
+      "main": [
+        [
+          {
+            "node": "Published?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Published?": {
+      "main": [
+        [
+          {
+            "node": "Get Permalink",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Permalink": {
+      "main": [
+        [
+          {
+            "node": "Normalize Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Post": {
+      "main": [
+        [
+          {
+            "node": "Mark Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Posted": {
+      "main": [
+        [
+          {
+            "node": "Load Targets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Targets": {
+      "main": [
+        [
+          {
+            "node": "Plan Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Actions": {
+      "main": [
+        [
+          {
+            "node": "Save Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Actions": {
+      "main": [
+        [
+          {
+            "node": "Approval Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Alert?": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Job Failed": {
+      "main": [
+        [
+          {
+            "node": "Failure Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure Alert?": {
+      "main": [
+        [
+          {
+            "node": "Send Failure Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

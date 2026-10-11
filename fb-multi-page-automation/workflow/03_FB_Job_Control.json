@@ -1,0 +1,561 @@
+{
+  "name": "FB Multi 3 - Job Control",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "fb-control",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3c020814-1d26-4971-bf89-2343f9a59452",
+      "name": "Control Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "e2241455-8be6-4556-802c-eae1b58072f3"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "dba48464-2566-4854-8ca1-81843e8a2077",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "status"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "90a8ebaf-eeea-4986-b8aa-2596ac2e5751",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "preview",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "preview"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "31fb859e-3239-4f04-a3a9-59027c5d0d17",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "fdbaf5c5-d281-4e6f-b8ab-7cb3b7ca27a4",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "c1654a01-5aec-4b6f-b3fd-a9a120207c8e",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "killswitch",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "killswitch"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "62863dce-ee7a-4597-b4a7-68c9688eff34",
+                    "leftValue": "={{ $json.query.op }}",
+                    "rightValue": "edit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "edit"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c35055ea-72a2-4ca2-8af8-c7475922a9a1",
+      "name": "Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT j.id, j.status, j.permalink, j.error,\n(SELECT coalesce(json_object_agg(s, c), '{}'::json) FROM (SELECT status s, count(*) c FROM fb_actions WHERE job_id=j.id GROUP BY status) t)::text AS actions\nFROM fb_jobs j WHERE j.id=$2::int AND EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1)",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.job_id || 0 ] }}"
+        }
+      },
+      "id": "082100dc-9de2-4676-8df3-0b7ddd501b74",
+      "name": "Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        -300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, ac.name AS account, a.action_type, a.text, a.run_at, a.status, a.last_error\nFROM fb_actions a JOIN fb_accounts ac ON ac.id=a.account_id\nWHERE a.job_id=$2::int AND EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1) ORDER BY a.run_at",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.job_id || 0 ] }}"
+        }
+      },
+      "id": "6337a97c-e8c6-4ff5-93bf-d6e8f45037a0",
+      "name": "Preview",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        -150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT 1 WHERE EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1)),\nshift AS (SELECT GREATEST(interval '0', now() - min(run_at)) + interval '2 minutes' AS d FROM fb_actions WHERE job_id=$2::int AND status='pending_approval'),\nu AS (UPDATE fb_actions SET status='scheduled', run_at = run_at + (SELECT d FROM shift), updated_at=now()\n      WHERE job_id=$2::int AND status='pending_approval' AND EXISTS (SELECT 1 FROM ok) RETURNING id),\nj AS (UPDATE fb_jobs SET status='scheduled' WHERE id=$2::int AND status='awaiting_approval' AND EXISTS (SELECT 1 FROM ok) RETURNING id)\nSELECT (SELECT count(*) FROM u) AS approved_actions, (SELECT count(*) FROM ok) AS authorized",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.job_id || 0 ] }}"
+        }
+      },
+      "id": "39ba2ecc-1c99-4e1f-bc3c-52cfe251723e",
+      "name": "Approve",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT 1 WHERE EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1)),\nu AS (UPDATE fb_actions SET status='cancelled', last_error='Cancelled by user', updated_at=now()\n      WHERE job_id=$2::int AND status IN ('pending_approval','scheduled') AND EXISTS (SELECT 1 FROM ok) RETURNING id),\nj AS (UPDATE fb_jobs SET status='cancelled' WHERE id=$2::int AND EXISTS (SELECT 1 FROM ok) RETURNING id)\nSELECT (SELECT count(*) FROM u) AS cancelled_actions, (SELECT count(*) FROM ok) AS authorized",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.job_id || 0 ] }}"
+        }
+      },
+      "id": "ce758333-43ed-47af-822e-a797396d8bfd",
+      "name": "Cancel Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT 1 WHERE EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1)),\nu AS (UPDATE fb_actions SET status='cancelled', last_error='Kill switch', updated_at=now()\n      WHERE status IN ('pending_approval','scheduled') AND EXISTS (SELECT 1 FROM ok) RETURNING id),\nj AS (UPDATE fb_jobs SET status='cancelled' WHERE status IN ('scheduled','awaiting_approval') AND EXISTS (SELECT 1 FROM ok) RETURNING id)\nSELECT (SELECT count(*) FROM u) AS cancelled_actions, (SELECT count(*) FROM ok) AS authorized",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.job_id || 0 ] }}"
+        }
+      },
+      "id": "80001011-3657-442f-af1e-30bdd06b323d",
+      "name": "Kill Switch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE fb_actions SET text=left($3, 2000), updated_at=now()\nWHERE id=$2::int AND status IN ('pending_approval','scheduled') AND action_type='comment' AND EXISTS (SELECT 1 FROM fb_settings WHERE k='panel_key' AND v=$1) RETURNING id, text, status",
+        "options": {
+          "queryReplacement": "={{ [ $json.query.key || '', $json.query.action_id || 0, $json.query.text || '' ] }}"
+        }
+      },
+      "id": "ded8fe96-548f-4c2f-8890-c224eb0d9767",
+      "name": "Edit Comment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        450
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, message: 'Unknown op. Use status|preview|approve|cancel|killswitch|edit' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "5c747cd6-7e62-4e51-a6d8-3de0264a25df",
+      "name": "Respond Bad Op",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "6725d1eb-1e18-416a-862b-47aa08be71d5",
+      "name": "Respond Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "022923ab-bde2-4fa8-9723-c1cb83cacde6",
+      "name": "Respond Preview",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "4d2e4642-5a82-49ae-bf9e-5c37ed73a5c4",
+      "name": "Respond Approve",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "d3eab954-75b4-4f4a-bee7-16f8c363652c",
+      "name": "Respond Cancel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "22aa4503-9175-44cd-9227-47b4b9764aa3",
+      "name": "Respond Kill",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "9f53ccf4-2351-4b32-b78d-76e5c331c360",
+      "name": "Respond Edit",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        450
+      ]
+    }
+  ],
+  "connections": {
+    "Control Webhook": {
+      "main": [
+        [
+          {
+            "node": "Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Operation": {
+      "main": [
+        [
+          {
+            "node": "Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approve",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kill Switch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Bad Op",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status": {
+      "main": [
+        [
+          {
+            "node": "Respond Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preview": {
+      "main": [
+        [
+          {
+            "node": "Respond Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve": {
+      "main": [
+        [
+          {
+            "node": "Respond Approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Job": {
+      "main": [
+        [
+          {
+            "node": "Respond Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kill Switch": {
+      "main": [
+        [
+          {
+            "node": "Respond Kill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Comment": {
+      "main": [
+        [
+          {
+            "node": "Respond Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

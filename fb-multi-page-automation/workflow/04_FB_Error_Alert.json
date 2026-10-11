@@ -1,0 +1,138 @@
+{
+  "name": "FB Multi 4 - Error Alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "78a0a13f-5f76-4154-b458-9546e5673e3b",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT coalesce(v,'') AS alert_url FROM fb_settings WHERE k='alert_url'",
+        "options": {}
+      },
+      "id": "21f0c84a-3d67-49ba-97c2-97b2ee08cc94",
+      "name": "Get Alert URL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_POSTGRES_CREDENTIAL",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9aa0a353-0f2e-4f7d-bb04-9a0fb33703af",
+              "leftValue": "={{ !!$json.alert_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2873b081-ec47-4092-a2f6-08e90b99d153",
+      "name": "Alert URL Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.alert_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: 'n8n ERROR in \"' + $('Error Trigger').first().json.workflow.name + '\" at node ' + ($('Error Trigger').first().json.execution.lastNodeExecuted || '?') + ': ' + ($('Error Trigger').first().json.execution.error.message || 'unknown'), content: 'n8n ERROR in ' + $('Error Trigger').first().json.workflow.name }) }}"
+      },
+      "id": "e1d8d9ae-7b67-44c3-849c-3b882085789c",
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Alert URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Alert URL": {
+      "main": [
+        [
+          {
+            "node": "Alert URL Set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert URL Set?": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
