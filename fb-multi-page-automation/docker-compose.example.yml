@@ -1,0 +1,14 @@
+@'
+services:
+  fbdb:
+    image: postgres:16
+    container_name: fbdb
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports: ["5433:5432"]
+    volumes: [fbdata:/var/lib/postgresql/data]
+volumes: {fbdata: {}}
+'@ | Set-Content -Encoding ascii fb-multi-page-automation\docker-compose.example.yml
